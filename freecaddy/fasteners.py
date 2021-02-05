@@ -16,6 +16,10 @@ def hex(width):
 
 
 def bolt_hole(bolt_d, bolt_l, shear_offset, head_d, head_space, nut_hex_w=None, nut_offset=None, nut_h=None):
+    """
+    Make a template for a bolt hole. The bolt is positioned along the Z axis in negative direction.
+    Z=0 corresponds to the shear line
+    """
     loose_r = bolt_d * 1.2 / 2 + 0.1
     assert loose_r < head_d / 2
     bottom_l = bolt_l - shear_offset

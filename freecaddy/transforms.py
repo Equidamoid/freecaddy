@@ -1,12 +1,11 @@
 import Part
 import typing
-from FreeCAD import Base
 import math
 import numpy as np
 import freecaddy.refs as fcr
 from dataclasses import dataclass
+from .abbreviations import *
 
-v = Base.Vector
 
 class Transform:
     def apply(self, shape: Part.Shape, preserve_original=True):
@@ -14,6 +13,7 @@ class Transform:
 
     def __invert__(self):
         pass
+
 
 @dataclass(frozen=True)
 class Rotation(Transform):
@@ -30,12 +30,24 @@ class Rotation(Transform):
     def __invert__(self):
         return Rotation(angle=-self.angle, ref=self.ref, axis=self.axis)
 
+
 @dataclass(frozen=True)
 class Translation(Transform):
     dx: float = 0
     dy: float = 0
     dz: float = 0
 
+    @classmethod
+    def spherical(cls, r: float, phi=0.0, theta=0.0):
+        assert theta == 0.0, "theta is not implemented yet"
+        p = math.radians(phi)
+        c = math.cos
+        s = math.sin
+        return Translation(
+            r * c(p),
+            r * s(p),
+            0
+        )
     def apply(self, shape: Part.Shape, preserve_original=True):
         if preserve_original:
             shape = shape.copy()
@@ -76,15 +88,7 @@ class TransformChain:
         return self
 
     def translate_sph(self, r: float, phi=0.0, theta=0.0):
-        assert theta == 0.0
-        p = math.radians(phi)
-        c = math.cos
-        s = math.sin
-        self._transforms.append(Translation(
-            r * c(p),
-            r * s(p),
-            0
-        ))
+        self._transforms.append(Translation.spherical(r, phi, theta))
         return self
 
     def rotate(self, ref: v = fcr.O, axis: v = fcr.OZ, angle: float = 0):
@@ -136,9 +140,6 @@ class TransformChain:
         return ret
 
 
-
-
-
 def wiggle(shape: Part.Shape, dx=None, dy=None, dz=None) -> typing.Iterable[Part.Shape]:
     """
     A non-isotropic alternative to Part.offset.
@@ -158,13 +159,22 @@ def wiggle(shape: Part.Shape, dx=None, dy=None, dz=None) -> typing.Iterable[Part
                 yield TransformChain().translate(x, y, z)(shape)
 
 
-def ref(shape: Part.Shape, origin=None, direction=None) -> Part.Shape:
+def ref(shape: Part.Shape, origin=None, direction=None, roll: float = None) -> Part.Shape:
     """
     Applying usual FreeCAD's `point=..., direction=...` to any shape.
     ref(pnt, dir)(Part.makeBox(x, y, z)) is equivalent to Part.makeBox(x, y, z, png, dir),
     but does not require copypasting code when creating your own shapes.
+
+    :param origin: Move the shape to specified origin point from default (0, 0, 0)
+    :param direction: Orient the shape so former Z axes points in specified direction
+    :param roll: Rotate the shape around it's initial Z axis
+    :return: `shape`, the object is modified in place
     """
-    if direction:
+
+    if roll is not None:
+        shape.rotate(fcr.OZ, roll)
+
+    if direction is not None:
         direction = np.array(list(direction))
         assert len(direction) == 3
         direction /= np.sqrt((direction * direction).sum())
@@ -174,6 +184,8 @@ def ref(shape: Part.Shape, origin=None, direction=None) -> Part.Shape:
 
     if origin:
         shape.translate(origin)
+
+    return shape
 
 
 def translate(dx=0, dy=0, dz=0):
