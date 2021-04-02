@@ -3,7 +3,7 @@ import Part
 
 def shape_reduce(method: str, shape: Part.Shape, other):
     while other:
-        print(other)
+        assert other[0]
         shape = getattr(shape, method)(other[0])
         other = other[1:]
     return shape
