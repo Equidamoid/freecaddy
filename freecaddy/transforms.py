@@ -9,10 +9,10 @@ from .abbreviations import *
 
 class Transform:
     def apply(self, shape: Part.Shape, preserve_original=True):
-        pass
+        raise NotImplemented
 
     def __invert__(self):
-        pass
+        raise NotImplemented
 
 
 @dataclass(frozen=True)
@@ -136,8 +136,20 @@ class TransformChain:
     def __call__(self, shape: Part.Shape) -> Part.Shape:
         ret = shape.copy()
         for tr in self._transforms:
-            ret = tr.apply(ret, False)
+            try:
+                ret = tr.apply(ret, False)
+            except:
+                print("Failed to apply transform: %r" % (tr,))
+                raise
         return ret
+
+    def __repr__(self):
+        return str(self._transforms)
+
+    def transform_pont(self, pnt=fcr.O):
+        p = Part.Point(v(*pnt))
+        p = self(p)
+        return np.array([p.X, p.Y, p.Z])
 
 
 def wiggle(shape: Part.Shape, dx=None, dy=None, dz=None) -> typing.Iterable[Part.Shape]:
@@ -159,40 +171,61 @@ def wiggle(shape: Part.Shape, dx=None, dy=None, dz=None) -> typing.Iterable[Part
                 yield TransformChain().translate(x, y, z)(shape)
 
 
-def ref(shape: Part.Shape, origin=None, direction=None, roll: float = None) -> Part.Shape:
+@dataclass
+class Position(Transform):
     """
-    Applying usual FreeCAD's `point=..., direction=...` to any shape.
-    ref(pnt, dir)(Part.makeBox(x, y, z)) is equivalent to Part.makeBox(x, y, z, png, dir),
-    but does not require copypasting code when creating your own shapes.
-
-    :param origin: Move the shape to specified origin point from default (0, 0, 0)
-    :param direction: Orient the shape so former Z axes points in specified direction
-    :param roll: Rotate the shape around it's initial Z axis
-    :return: `shape`, the object is modified in place
+    A transform similar to Part.makeXXX's `point` and `dir` parameters.
+    Moves and rotates a given shape in a following way:
+     - The shape's point that was at (0,0,0) is now at `origin`
+     - The shape's direction that matched positive Z now points to `direction`
+     - The shape is rotated along the former Z direction for `roll` degrees
     """
+    origin: v = fcr.O
+    direction: v = fcr.OZ
+    roll: float = None
 
-    if roll is not None:
-        shape.rotate(fcr.OZ, roll)
+    @property
+    def primitive_chain(self):
+        ret = TransformChain()
+        if self.roll is not None:
+            ret.rotate(angle=self.roll)
 
-    if direction is not None:
-        direction = np.array(list(direction))
-        assert len(direction) == 3
-        direction /= np.sqrt((direction * direction).sum())
-        ax = np.cross(np.array([0, 0, 1]), direction)
-        angle = math.degrees(math.sqrt((ax * ax).sum()))
-        shape.rotate(fcr.O, v(*ax), angle)
+        if self.direction is not None:
+            direction = np.array(list(self.direction))
+            assert len(direction) == 3
+            direction /= np.sqrt((direction * direction).sum())
+            if np.sum(np.abs(direction[:2])) < 1e-3:
+                print("polar corner case detected (direction %s), bypassing transform" % (direction,))
+                if direction[2] < 0:
+                    ret.rotate(axis=fcr.OY, angle=180)
+            else:
+                ax = np.cross(np.array([0, 0, 1]), direction)
+                angle = math.degrees(math.asin(math.sqrt((ax * ax).sum())))
+                print("direction angle: %s, axis %s" % (angle, ax))
+                ret.rotate(ref=fcr.O, axis=v(*ax), angle=angle)
 
-    if origin:
-        shape.translate(origin)
+        if self.origin:
+            print("translate(%s)" % (self.origin,))
+            ret.translate(*self.origin)
 
-    return shape
+        return ret
+
+    def apply(self, shape: Part.Shape, preserve_original=True):
+        return self.primitive_chain(shape)
+
+    def __invert__(self):
+        return ~self.primitive_chain
+
+    @property
+    def inverted_directon(self):
+        return Position(origin=self.origin, direction=v(*[-i for i in self.direction]), roll=self.roll)
 
 
 def translate(dx=0, dy=0, dz=0):
     return TransformChain().translate(dx, dy, dz)
 
 
-def rotate(ref: v, axis: v, angle: float):
+def rotate(ref: v=fcr.O, axis: v=fcr.OZ, angle: float = 0):
     return TransformChain().rotate(ref, axis, angle)
 
 
